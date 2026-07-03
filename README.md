@@ -1,5 +1,9 @@
 # Vector Search Engine — building the index, not importing one
 
+[![CI](https://github.com/Shr1yaK/vector-search-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/Shr1yaK/vector-search-engine/actions/workflows/ci.yml)
+&nbsp;![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+&nbsp;![License: MIT](https://img.shields.io/badge/license-MIT-green)
+
 A vector search engine implemented **from scratch on numpy** — k-means, an IVF
 index, and an HNSW graph index — rigorously benchmarked against an exact
 brute-force oracle, with a hand-written **C++ hot-path** and a real **semantic

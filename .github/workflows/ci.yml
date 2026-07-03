@@ -1,0 +1,37 @@
+name: CI
+
+# Runs the full test suite on every push / PR. Tests use synthetic data only,
+# so no dataset download is needed and the run is fully self-contained.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy pandas pybind11 pytest
+
+      - name: Build C++ hot-path extension
+        run: python cpp/build.py
+
+      - name: Run tests
+        run: pytest -q
