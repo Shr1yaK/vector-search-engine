@@ -4,15 +4,15 @@ numpy>=1.24
 # Data loading / benchmarking tables
 pandas>=2.0
 
-# Semantic app
+# Semantic app. The mood translator is a self-contained rule-based lexicon —
+# no LLM/API dependency, so it runs fully offline.
 streamlit>=1.30
-
-# LLM-backed mood translation (optional at runtime; app falls back to a
-# deterministic rule-based translator when no API key is configured).
-anthropic>=0.40
 
 # C++ hot-path build (optional stretch goal). Only needed to compile cpp/.
 pybind11>=2.11
 
 # Tests
 pytest>=7.4
+
+# Benchmark plots (benchmarks/plot_results.py)
+matplotlib>=3.7
