@@ -28,7 +28,9 @@ benchmark suite maps that surface out explicitly.
 from __future__ import annotations
 
 import heapq
+import json
 import math
+from pathlib import Path
 
 import numpy as np
 
@@ -291,3 +293,56 @@ class HNSWIndex:
             idxs.append(i)
             dsts.append(d)
         return idxs, dsts
+
+    # ------------------------------------------------------------------ #
+    # persistence
+    # ------------------------------------------------------------------ #
+    def save(self, path: str) -> None:
+        """Serialize a built graph to a directory (vectors + JSON adjacency).
+
+        Building an HNSW graph is the expensive step (tens of seconds for tens
+        of thousands of points); saving it lets a service load in milliseconds.
+        The adjacency lists serialize straight to JSON — node ids become string
+        keys and convert back on load.
+        """
+        if self.vectors_ is None or self.entry_point_ is None:
+            raise RuntimeError("cannot save an unbuilt index")
+        p = Path(path)
+        p.mkdir(parents=True, exist_ok=True)
+        np.savez(p / "arrays.npz", vectors=self.vectors_)
+        graph = [{str(node): nbrs for node, nbrs in layer.items()} for layer in self.graph_]
+        (p / "meta.json").write_text(json.dumps({
+            "type": "hnsw",
+            "M": self.M,
+            "ef_construction": self.ef_construction,
+            "ef_search": self.ef_search,
+            "metric": self.metric,
+            "entry_point": self.entry_point_,
+            "max_level": self.max_level_,
+            "graph": graph,
+            "build_stats": self.build_stats_,
+        }))
+
+    @classmethod
+    def load(cls, path: str, use_native: bool = True) -> "HNSWIndex":
+        """Reconstruct a graph previously written by :meth:`save`."""
+        p = Path(path)
+        meta = json.loads((p / "meta.json").read_text())
+        if meta.get("type") != "hnsw":
+            raise ValueError(f"{path} is not an HNSW index (type={meta.get('type')})")
+        idx = cls(
+            M=meta["M"],
+            ef_construction=meta["ef_construction"],
+            ef_search=meta["ef_search"],
+            metric=meta["metric"],
+            use_native=use_native,
+        )
+        idx.vectors_ = np.load(p / "arrays.npz")["vectors"]
+        idx.graph_ = [
+            {int(node): list(nbrs) for node, nbrs in layer.items()}
+            for layer in meta["graph"]
+        ]
+        idx.entry_point_ = meta["entry_point"]
+        idx.max_level_ = meta["max_level"]
+        idx.build_stats_ = meta["build_stats"]
+        return idx

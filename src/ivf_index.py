@@ -16,6 +16,9 @@ IVF's only error source is this cell-boundary spill.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import numpy as np
 
 from .kmeans import KMeans
@@ -121,3 +124,59 @@ class IVFIndex:
             idxs.append(i)
             dsts.append(d)
         return idxs, dsts
+
+    # ------------------------------------------------------------------ #
+    # persistence
+    # ------------------------------------------------------------------ #
+    def save(self, path: str) -> None:
+        """Serialize a built index to a directory (arrays + JSON metadata).
+
+        Rebuilding an index runs k-means over the whole corpus; persisting lets
+        a service load a prebuilt index at startup instead. Variable-length
+        inverted lists are stored flattened with per-cell lengths so they
+        round-trip without pickling arbitrary objects.
+        """
+        if self.vectors_ is None or self.centroids_ is None:
+            raise RuntimeError("cannot save an unbuilt index")
+        p = Path(path)
+        p.mkdir(parents=True, exist_ok=True)
+        flat = (
+            np.concatenate(self.inverted_lists_)
+            if self.inverted_lists_
+            else np.empty(0, dtype=np.int64)
+        )
+        lengths = np.array([len(l) for l in self.inverted_lists_], dtype=np.int64)
+        np.savez(
+            p / "arrays.npz",
+            vectors=self.vectors_,
+            centroids=self.centroids_,
+            inv_ids=flat,
+            inv_lens=lengths,
+        )
+        (p / "meta.json").write_text(json.dumps({
+            "type": "ivf",
+            "nlist": self.nlist,
+            "metric": self.metric,
+            "nprobe": self.nprobe,
+            "build_stats": self.build_stats_,
+        }, indent=2))
+
+    @classmethod
+    def load(cls, path: str) -> "IVFIndex":
+        """Reconstruct an index previously written by :meth:`save`."""
+        p = Path(path)
+        meta = json.loads((p / "meta.json").read_text())
+        if meta.get("type") != "ivf":
+            raise ValueError(f"{path} is not an IVF index (type={meta.get('type')})")
+        arr = np.load(p / "arrays.npz")
+        idx = cls(nlist=meta["nlist"], metric=meta["metric"], nprobe=meta["nprobe"])
+        idx.vectors_ = arr["vectors"]
+        idx.centroids_ = arr["centroids"]
+        ids, lens = arr["inv_ids"], arr["inv_lens"]
+        lists, off = [], 0
+        for length in lens:
+            lists.append(ids[off : off + int(length)])
+            off += int(length)
+        idx.inverted_lists_ = lists
+        idx.build_stats_ = meta["build_stats"]
+        return idx
