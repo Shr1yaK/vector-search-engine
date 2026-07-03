@@ -1,0 +1,27 @@
+{
+  "config": {
+    "data": "data/spotify_tracks.csv",
+    "n": 8000,
+    "queries": 150,
+    "k": 10,
+    "ef": 50,
+    "out": "benchmarks/results/native_speedup.json"
+  },
+  "results": {
+    "numpy": {
+      "build_s": 33.86163683299674,
+      "query_ms": 0.7751350000035018,
+      "recall": 0.9866666666666667
+    },
+    "native": {
+      "build_s": 13.571172916999785,
+      "query_ms": 0.321512220010239,
+      "recall": 0.9866666666666667
+    }
+  },
+  "speedup": {
+    "build_x": 2.495114979382535,
+    "query_x": 2.410903697466978,
+    "recall_delta": 0.0
+  }
+}

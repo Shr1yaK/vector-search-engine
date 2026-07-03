@@ -32,7 +32,7 @@ import math
 
 import numpy as np
 
-from .vectors import get_metric
+from .vectors import NATIVE_AVAILABLE, get_metric, l2_sq_point
 
 
 class HNSWIndex:
@@ -61,6 +61,7 @@ class HNSWIndex:
         ef_search: int = 50,
         metric: str = "l2",
         random_state: int | None = None,
+        use_native: bool = True,
     ) -> None:
         self.M = M
         self.M_max0 = 2 * M          # layer-0 nodes may hold twice as many links
@@ -68,6 +69,10 @@ class HNSWIndex:
         self.ef_search = ef_search
         self.metric = metric
         self._dist = get_metric(metric)
+        # HNSW's hot path is millions of single-pair distances. When the C++
+        # kernel is built we route those through it; the l2 metric goes through
+        # the compiled scalar path, other metrics stay on numpy.
+        self.use_native = use_native and NATIVE_AVAILABLE and metric in ("l2", "euclidean")
         self._rng = np.random.default_rng(random_state)
         # Level-generation normalization factor (Malkov & Yashunin, eq. for mL).
         self._mL = 1.0 / math.log(M) if M > 1 else 1.0
@@ -87,7 +92,14 @@ class HNSWIndex:
     # distance helpers
     # ------------------------------------------------------------------ #
     def _d_point(self, q: np.ndarray, node: int) -> float:
-        """Distance from a query vector to a single stored node."""
+        """Distance from a query vector to a single stored node.
+
+        On the l2 hot path with the C++ extension available, this uses the
+        compiled scalar kernel; we take the sqrt so the returned distances match
+        the numpy path exactly (ordering is unaffected either way).
+        """
+        if self.use_native:
+            return math.sqrt(l2_sq_point(q, self.vectors_[node]))
         return float(self._dist(q, self.vectors_[node : node + 1])[0])
 
     def _random_level(self) -> int:

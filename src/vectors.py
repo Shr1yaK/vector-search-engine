@@ -30,6 +30,22 @@ try:  # pandas is only needed for CSV loading, not for the index math.
 except ImportError:  # pragma: no cover - pandas is a hard dependency in practice
     pd = None
 
+# Optional C++ acceleration (stretch goal). Built via ``python cpp/build.py``.
+# When present, the hot-path distance kernels run in compiled code; when
+# absent, everything transparently falls back to the numpy implementations
+# below, so the library is fully functional either way.
+try:
+    import vecsearch_native as _native
+    NATIVE_AVAILABLE = True
+except ImportError:  # pragma: no cover - extension is optional
+    _native = None
+    NATIVE_AVAILABLE = False
+
+
+def native_available() -> bool:
+    """True if the compiled C++ distance kernels are importable."""
+    return NATIVE_AVAILABLE
+
 
 # The audio features we treat as searchable dimensions. Ordering is fixed and
 # load-bearing: a query vector must present its values in this same order.
@@ -235,6 +251,35 @@ _METRICS = {
     "sqeuclidean": l2_distance_sq,
     "cosine": cosine_distance,
 }
+
+
+# --------------------------------------------------------------------------- #
+# Native-accelerated kernels (used by the indexes on their hot paths)
+# --------------------------------------------------------------------------- #
+def l2_sq_point(query: np.ndarray, vec: np.ndarray, use_native: bool = True) -> float:
+    """Squared L2 between two (d,) vectors — the HNSW graph-traversal hot path.
+
+    Dispatches to the C++ kernel when it is built and ``use_native`` is set,
+    otherwise uses numpy. Kept as a single chokepoint so the whole graph search
+    speeds up by flipping one flag.
+    """
+    if use_native and NATIVE_AVAILABLE:
+        return _native.l2_sq_point(
+            np.ascontiguousarray(query, dtype=np.float32),
+            np.ascontiguousarray(vec, dtype=np.float32),
+        )
+    diff = np.asarray(query, dtype=np.float32) - np.asarray(vec, dtype=np.float32)
+    return float(diff @ diff)
+
+
+def l2_batch_native(query: np.ndarray, matrix: np.ndarray) -> np.ndarray:
+    """Euclidean distances (native if available) for the brute-force/IVF scan."""
+    if NATIVE_AVAILABLE:
+        return _native.l2_batch(
+            np.ascontiguousarray(query, dtype=np.float32),
+            np.ascontiguousarray(matrix, dtype=np.float32),
+        )
+    return l2_distance(query, matrix)
 
 
 def get_metric(name: str):
