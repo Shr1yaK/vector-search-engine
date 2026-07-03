@@ -1,0 +1,18 @@
+# Core numerics — the index implementations depend only on numpy.
+numpy>=1.24
+
+# Data loading / benchmarking tables
+pandas>=2.0
+
+# Semantic app
+streamlit>=1.30
+
+# LLM-backed mood translation (optional at runtime; app falls back to a
+# deterministic rule-based translator when no API key is configured).
+anthropic>=0.40
+
+# C++ hot-path build (optional stretch goal). Only needed to compile cpp/.
+pybind11>=2.11
+
+# Tests
+pytest>=7.4

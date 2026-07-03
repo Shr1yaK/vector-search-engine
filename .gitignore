@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Compiled C++ extension artifacts
+*.so
+*.o
+*.obj
+*.dylib
+cpp/build/
+
+# OS
+.DS_Store
+
+# Secrets
+.env
+*.key
+
+# Benchmark scratch (keep committed results in benchmarks/results/)
+benchmarks/_scratch/
+
+# The raw dataset is large (~20 MB). Keep it out of git; docs explain how to fetch it.
+data/spotify_tracks.csv
