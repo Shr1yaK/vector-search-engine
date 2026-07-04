@@ -102,6 +102,25 @@ pybind11; the batch path releases the GIL. `vectors.py` imports the extension
 when built and falls back to numpy otherwise, so behavior is identical either
 way — only speed changes (~2.4×; see `docs/BENCHMARKS.md`).
 
+## Cross-cutting: filtering & persistence
+
+Two features every index shares, because a real vector database is expected to
+have them:
+
+- **Metadata filtering** (`vectors.as_mask` + `allowed=` on each `search`).
+  A filter (boolean mask or id iterable) is normalized once and applied
+  per-index: brute force pushes disallowed rows to +inf (exact); IVF filters the
+  candidates gathered from probed cells; HNSW filters the base-layer beam and
+  widens `ef` so matching candidates survive. This is the classic ANN+filter
+  trade-off — post-filtering a graph traversal can starve results, so the beam
+  is widened to compensate.
+- **Persistence** (`save` / `load` on IVF and HNSW). Building an index — k-means
+  for IVF, graph construction for HNSW — is the expensive step; persisting lets
+  a service load a prebuilt index at startup. Arrays go to `.npz`, structure
+  (inverted lists as flattened ids + lengths; HNSW adjacency as JSON) to
+  `meta.json`. No pickling of arbitrary objects; a round-trip returns
+  byte-identical results (asserted in the tests).
+
 ## Layer 7 — semantic app (`mood_translator.py`, `app.py`)
 
 - `mood_translator`: a curated lexicon maps mood terms → weighted per-feature

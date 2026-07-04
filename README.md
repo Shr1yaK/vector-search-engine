@@ -36,6 +36,10 @@ mood text ──▶ mood translator ──▶ query vector ──▶ [ HNSW | IV
   pybind11 gave a **2.4× build and query speedup at identical recall**.
 - **Systems depth tied to a shipped product.** Vector search is the substrate
   of every RAG pipeline; here it drives a live semantic search UI.
+- **Production-minded extras.** Every index supports **metadata-filtered
+  search** ("nearest tracks *within these genres*") and **save/load
+  persistence** (build the expensive graph once, load it in milliseconds) —
+  both the features a real vector DB is expected to have.
 
 ---
 
