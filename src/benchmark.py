@@ -26,6 +26,7 @@ import numpy as np
 from .brute_force import BruteForceIndex
 from .hnsw_index import HNSWIndex
 from .ivf_index import IVFIndex
+from .ivfpq_index import IVFPQIndex
 
 
 # --------------------------------------------------------------------------- #
@@ -110,6 +111,7 @@ def run_benchmark(
     k: int = 10,
     ivf_configs: list[dict] | None = None,
     hnsw_configs: list[dict] | None = None,
+    ivfpq_configs: list[dict] | None = None,
     metric: str = "l2",
     seed: int = 0,
     verbose: bool = True,
@@ -197,6 +199,46 @@ def run_benchmark(
         log(f"[bench] hnsw(M={M},efc={efc},efs={efs}): "
             f"recall={stats['recall_at_k']:.3f} lat={stats['mean_latency_ms']:.3f}ms "
             f"qps={stats['qps']:.0f} speedup={bf_stats['mean_latency_ms']/stats['mean_latency_ms']:.1f}x")
+
+    # --- IVF-PQ sweep (memory compression) ------------------------------ #
+    # Only meaningful when d is large enough to split into subspaces.
+    if ivfpq_configs is None:
+        m = 8 if d >= 16 else max(1, d // 3)
+        ivfpq_configs = [
+            {"nlist": int(np.sqrt(n)) or 1, "m": m, "ksub": min(256, n // 4 or 1),
+             "nprobe": 16, "rerank": rr}
+            for rr in (0, 100)
+        ]
+    ivfpq_cache: dict[tuple, IVFPQIndex] = {}
+    for cfg in ivfpq_configs:
+        nlist = cfg.get("nlist", int(np.sqrt(n)) or 1)
+        m = cfg["m"]
+        ksub = cfg.get("ksub", 256)
+        nprobe = cfg.get("nprobe", 16)
+        rerank = cfg.get("rerank", 0)
+        key = (nlist, m, ksub)
+        if key not in ivfpq_cache:  # build once, reuse across nprobe/rerank
+            t0 = time.perf_counter()
+            ivfpq_cache[key] = IVFPQIndex(
+                nlist=nlist, m=m, ksub=ksub, random_state=seed
+            ).build(vectors, keep_vectors=True)
+            ivfpq_cache[key]._build_time = time.perf_counter() - t0  # type: ignore[attr-defined]
+        ipq = ivfpq_cache[key]
+        stats = _time_queries(
+            lambda q: ipq.search(q, k, nprobe=nprobe, rerank=rerank), queries, truth, k
+        )
+        results.append(
+            BenchResult(
+                index="ivfpq",
+                params={"m": m, "ksub": ksub, "nprobe": nprobe, "rerank": rerank},
+                n=n, d=d, k=k, build_time_s=ipq._build_time,  # type: ignore[attr-defined]
+                memory_mb=ipq.memory_bytes() / 1e6, extra=ipq.build_stats_, **stats,
+            )
+        )
+        log(f"[bench] ivfpq(m={m},ksub={ksub},nprobe={nprobe},rerank={rerank}): "
+            f"recall={stats['recall_at_k']:.3f} lat={stats['mean_latency_ms']:.3f}ms "
+            f"mem={ipq.memory_bytes()/1e6:.2f}MB "
+            f"({vectors.nbytes/max(ipq.memory_bytes(),1):.1f}x smaller than raw)")
 
     return results
 

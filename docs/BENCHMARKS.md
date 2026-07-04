@@ -80,6 +80,26 @@ are returned — the recall delta is exactly 0.0000, verified in the test suite
 (`test_hnsw.py::test_native_matches_numpy_recall`). That's the discipline: an
 optimization that moves the answers is a bug, not a speedup.
 
+## Finding 4 — PQ buys memory, rerank buys the recall back
+
+IVF-PQ stores product-quantized codes instead of full vectors. On the d=128
+synthetic corpus:
+
+| index | recall@10 | mean ms | memory | vs raw |
+|---|---|---|---|---|
+| brute force | 1.000 | 0.737 | 10.24 MB | 1× |
+| hnsw (ef=50) | 1.000 | 0.301 | 15.61 MB | 1.5× larger |
+| ivfpq (no rerank) | 0.363 | 0.642 | **0.36 MB** | **28× smaller** |
+| ivfpq (rerank 100) | 0.943 | 0.662 | 0.36 MB | 28× smaller |
+
+Raw PQ recall is low (0.36) because quantization is lossy — but it's an
+excellent *candidate generator*: the true top-10 land inside its top-100
+shortlist ~99% of the time. Re-ranking that shortlist with exact distances lifts
+recall to 0.94 while the index itself stays 28× smaller than the raw vectors.
+This is the memory/accuracy knob production systems live on (billions of vectors
+in RAM), and the reason HNSW — which stores full vectors *plus* a graph — is the
+largest index here, not the smallest.
+
 ## Caveats & honesty
 
 - Benchmarks are single-machine, single-threaded Python (except the C++ kernel);

@@ -22,10 +22,13 @@ def test_run_benchmark_smoke(uniform_data):
         k=10,
         ivf_configs=[{"nlist": 30, "nprobe": 8}],
         hnsw_configs=[{"M": 8, "ef_construction": 50, "ef_search": 32}],
+        ivfpq_configs=[{"nlist": 30, "m": 4, "ksub": 32, "nprobe": 8, "rerank": 50}],
         verbose=False,
     )
     kinds = {r.index for r in results}
-    assert kinds == {"brute_force", "ivf", "hnsw"}
+    assert kinds == {"brute_force", "ivf", "hnsw", "ivfpq"}
+    ipq = next(r for r in results if r.index == "ivfpq")
+    assert ipq.memory_mb < uniform_data.nbytes / 1e6      # PQ compresses
     bf = next(r for r in results if r.index == "brute_force")
     assert bf.recall_at_k == 1.0                 # oracle is exact by definition
     assert all(0.0 <= r.recall_at_k <= 1.0 for r in results)
