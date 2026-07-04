@@ -293,3 +293,21 @@ def get_metric(name: str):
 def pairwise_to_point(query: np.ndarray, matrix: np.ndarray, metric: str = "l2") -> np.ndarray:
     """Distances from one query to all rows, dispatched by metric name."""
     return get_metric(metric)(query, matrix)
+
+
+def as_mask(allowed, n: int) -> np.ndarray:
+    """Normalize a metadata filter into a boolean mask of length ``n``.
+
+    ``allowed`` may be a boolean mask (returned as-is) or any iterable of row
+    ids (turned into a mask). This lets every index accept the same filter
+    argument — the mechanism behind "search only within these genres".
+    """
+    arr = np.asarray(list(allowed) if not isinstance(allowed, np.ndarray) else allowed)
+    if arr.dtype == bool:
+        if arr.shape[0] != n:
+            raise ValueError(f"boolean mask length {arr.shape[0]} != n {n}")
+        return arr
+    mask = np.zeros(n, dtype=bool)
+    if arr.size:
+        mask[arr.astype(np.int64)] = True
+    return mask

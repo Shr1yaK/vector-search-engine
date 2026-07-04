@@ -104,12 +104,12 @@ ds = _load(n)
 def get_index():
     if index_name.startswith("HNSW"):
         idx, bt = _build_hnsw(n)
-        return idx, bt, {"search": lambda q, k: idx.search(q, k, ef_search=80)}
+        return idx, bt, {"search": lambda q, k, allowed=None: idx.search(q, k, ef_search=80, allowed=allowed)}
     if index_name.startswith("IVF"):
         idx, bt = _build_ivf(n)
-        return idx, bt, {"search": lambda q, k: idx.search(q, k, nprobe=16)}
+        return idx, bt, {"search": lambda q, k, allowed=None: idx.search(q, k, nprobe=16, allowed=allowed)}
     idx = _build_bf(n)
-    return idx, 0.0, {"search": lambda q, k: idx.search(q, k)}
+    return idx, 0.0, {"search": lambda q, k, allowed=None: idx.search(q, k, allowed=allowed)}
 
 
 tab_discover, tab_bench, tab_about = st.tabs(["🔎 Discover", "📊 Benchmarks", "ℹ️ How it works"])
@@ -131,12 +131,32 @@ with tab_discover:
 
     st.caption("Recognized mood words include: " + ", ".join(available_moods()[:24]) + " …")
 
+    # Metadata filters — the "search only within X" feature. Builds a boolean
+    # mask over the corpus that every index accepts via `allowed=`.
+    allowed_mask = None
+    if ds.metadata is not None:
+        with st.expander("Filters (optional) — genre, popularity"):
+            fc1, fc2 = st.columns([3, 2])
+            genres = sorted(ds.metadata["track_genre"].dropna().unique().tolist()) \
+                if "track_genre" in ds.metadata.columns else []
+            picked = fc1.multiselect("Restrict to genres", genres, default=[])
+            min_pop = fc2.slider("Minimum popularity", 0, 100, 0) \
+                if "popularity" in ds.metadata.columns else 0
+            mask = np.ones(ds.n, dtype=bool)
+            if picked:
+                mask &= ds.metadata["track_genre"].isin(picked).to_numpy()
+            if min_pop > 0:
+                mask &= (ds.metadata["popularity"].to_numpy() >= min_pop)
+            if picked or min_pop > 0:
+                allowed_mask = mask
+                st.caption(f"Filter active — {int(mask.sum()):,} of {ds.n:,} tracks match.")
+
     if mood.strip():
         idx, build_t, ops = get_index()
         qv, mq = mood_to_query_vector(mood, ds)
 
         t0 = time.perf_counter()
-        ids, dists = ops["search"](qv, int(k))
+        ids, dists = ops["search"](qv, int(k), allowed=allowed_mask)
         elapsed_ms = (time.perf_counter() - t0) * 1000
 
         st.info(f"**Why these tracks:** {mq.explanation(FEATURE_DESCRIPTIONS)}")

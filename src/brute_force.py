@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .vectors import get_metric
+from .vectors import as_mask, get_metric
 
 
 class BruteForceIndex:
@@ -34,16 +34,30 @@ class BruteForceIndex:
     def n(self) -> int:
         return self.vectors.shape[0]
 
-    def search(self, query: np.ndarray, k: int = 10) -> tuple[np.ndarray, np.ndarray]:
+    def search(
+        self, query: np.ndarray, k: int = 10, allowed=None
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Return ``(indices, distances)`` of the ``k`` nearest points to ``query``.
 
         Results are sorted by increasing distance. ``argpartition`` gets us the
         top-k in O(n) before a final O(k log k) sort of just those k, which is
         meaningfully faster than sorting all n distances.
+
+        ``allowed`` optionally restricts the search to a subset of rows (a
+        boolean mask or an iterable of ids) — exact metadata filtering, e.g.
+        "nearest tracks *within these genres*". Disallowed points are pushed to
+        +inf distance so they can never enter the top-k.
         """
         query = np.asarray(query, dtype=np.float32)
         dists = self._dist(query, self.vectors)
-        k = min(k, self.n)
+        n_avail = self.n
+        if allowed is not None:
+            mask = as_mask(allowed, self.n)
+            dists = np.where(mask, dists, np.inf)
+            n_avail = int(mask.sum())
+        k = min(k, n_avail)
+        if k == 0:
+            return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.float32)
         # Partial selection: cheapest k, then sort only those k.
         part = np.argpartition(dists, k - 1)[:k]
         order = np.argsort(dists[part])

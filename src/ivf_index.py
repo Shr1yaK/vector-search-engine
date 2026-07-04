@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 
 from .kmeans import KMeans
-from .vectors import get_metric
+from .vectors import as_mask, get_metric
 
 
 class IVFIndex:
@@ -86,9 +86,15 @@ class IVFIndex:
         return self
 
     def search(
-        self, query: np.ndarray, k: int = 10, nprobe: int | None = None
+        self, query: np.ndarray, k: int = 10, nprobe: int | None = None, allowed=None
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Return ``(indices, distances)`` of approximate k nearest neighbors."""
+        """Return ``(indices, distances)`` of approximate k nearest neighbors.
+
+        ``allowed`` optionally restricts results to a subset of rows (mask or
+        id iterable) — metadata filtering. The filter is applied to the
+        candidates gathered from the probed cells; with a very selective filter
+        you may need a larger ``nprobe`` to surface enough matching candidates.
+        """
         if self.vectors_ is None or self.centroids_ is None:
             raise RuntimeError("IVFIndex must be built before search")
         query = np.asarray(query, dtype=np.float32)
@@ -103,6 +109,9 @@ class IVFIndex:
         candidate_ids = np.concatenate(
             [self.inverted_lists_[c] for c in probe_cells]
         ) if nprobe else np.empty(0, dtype=np.int64)
+        if allowed is not None and candidate_ids.size:
+            mask = as_mask(allowed, self.n)
+            candidate_ids = candidate_ids[mask[candidate_ids]]
         if candidate_ids.size == 0:
             return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.float32)
 

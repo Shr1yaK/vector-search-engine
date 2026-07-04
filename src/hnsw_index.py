@@ -34,7 +34,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .vectors import NATIVE_AVAILABLE, get_metric, l2_sq_point
+from .vectors import NATIVE_AVAILABLE, as_mask, get_metric, l2_sq_point
 
 
 class HNSWIndex:
@@ -262,13 +262,24 @@ class HNSWIndex:
     # query (Algorithm 5)
     # ------------------------------------------------------------------ #
     def search(
-        self, query: np.ndarray, k: int = 10, ef_search: int | None = None
+        self, query: np.ndarray, k: int = 10, ef_search: int | None = None, allowed=None
     ) -> tuple[np.ndarray, np.ndarray]:
+        """Approximate k-NN, optionally restricted to ``allowed`` rows.
+
+        ``allowed`` (a boolean mask or id iterable) applies metadata filtering by
+        keeping only matching nodes from the base-layer beam. Because filtering
+        after traversal can starve the result set, we widen the beam when a
+        filter is present so enough matching candidates survive.
+        """
         if self.vectors_ is None or self.entry_point_ is None:
             raise RuntimeError("HNSWIndex must be built before search")
         q = np.asarray(query, dtype=np.float32)
         ef = ef_search if ef_search is not None else self.ef_search
         ef = max(ef, k)  # beam must be at least k wide to return k results
+        mask = None
+        if allowed is not None:
+            mask = as_mask(allowed, self.vectors_.shape[0])
+            ef = max(ef, 4 * k)  # widen beam so filtered matches survive
 
         ep = self.entry_point_
         # Greedy descent through the express layers (beam width 1).
@@ -278,6 +289,8 @@ class HNSWIndex:
 
         # Wide beam search at the base layer.
         found = self._search_layer(q, [ep], ef, layer=0)
+        if mask is not None:
+            found = [(d, i) for d, i in found if mask[i]]
         found.sort(key=lambda x: x[0])
         top = found[:k]
         idx = np.array([i for _, i in top], dtype=np.int64)
