@@ -26,8 +26,10 @@ mood text ──▶ mood translator ──▶ query vector ──▶ [ HNSW | IV
 ## Why this is interesting
 
 - **Real algorithms, not library calls.** Lloyd's k-means with k-means++
-  seeding, IVF coarse quantization, and the full HNSW multi-layer graph
-  (Malkov & Yashunin) — each implemented and unit-tested against exact k-NN.
+  seeding, IVF coarse quantization, the full HNSW multi-layer graph
+  (Malkov & Yashunin), and product quantization (IVF-PQ, ~20–32× memory
+  compression with ADC + optional exact rerank) — each implemented and
+  unit-tested against exact k-NN.
 - **Methodology, not "it works".** Every index is scored on recall@k, mean/p95
   latency, QPS, build time, and memory. The benchmark surfaced a genuine
   finding (below) about *when each index wins*.
@@ -121,7 +123,11 @@ python cpp/build.py
 # 4. run the tests (39 cases, all green)
 pytest
 
-# 5. launch the app
+# 5a. search from the command line (no browser)
+python -m src.search "chill rainy day coding music" --k 5
+python -m src.search "acoustic study" --index ivfpq --genre acoustic --genre ambient
+
+# 5b. or launch the app
 streamlit run src/app.py
 
 # 6. regenerate benchmarks
@@ -142,8 +148,11 @@ vector-search-engine/
 │   ├── kmeans.py           # Lloyd's k-means + k-means++, from scratch
 │   ├── ivf_index.py        # IVF: cluster once, probe nearest cells
 │   ├── hnsw_index.py       # HNSW multi-layer navigable graph
+│   ├── pq.py               # product quantization (compression + ADC)
+│   ├── ivfpq_index.py      # IVF-PQ: quantized residuals + optional rerank
 │   ├── benchmark.py        # recall / latency / build / memory harness
 │   ├── mood_translator.py  # mood text -> audio-feature query (offline)
+│   ├── search.py           # command-line search
 │   └── app.py              # Streamlit UI (discover + benchmarks)
 ├── cpp/
 │   ├── distance.cpp        # pybind11 L2 kernels (hot-path port)

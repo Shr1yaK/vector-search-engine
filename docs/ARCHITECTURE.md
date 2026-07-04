@@ -93,6 +93,22 @@ algorithm behind most production vector DBs:
 Knobs: `M` (degree; memory/recall), `ef_construction` (build beam; build
 time/quality), `ef_search` (query beam; latency/recall).
 
+## Layer 5b — IVF-PQ (`pq.py`, `ivfpq_index.py`)
+
+Memory-efficient search via **product quantization**. `pq.py` splits each vector
+into `m` contiguous subspaces, learns a k-means codebook per subspace (`ksub`
+centroids), and stores each vector as `m` one-byte codes — 20–32× smaller than
+float32. Search uses **Asymmetric Distance Computation**: the query is turned
+into an `(m, ksub)` table of squared distances to every centroid, and a coded
+vector's distance is `m` table lookups summed (no decompression).
+
+`ivfpq_index.py` combines this with IVF: it PQ-encodes the **residual**
+`x − centroid` (residuals are small and centered, so one shared codebook models
+them well), and search scores each probed cell's codes by ADC against the query's
+per-cell residual table. PQ trades recall for memory; an optional exact **rerank**
+of a PQ shortlist (`keep_vectors=True`) recovers most of it — the production
+over-fetch-and-rerank pattern.
+
 ## Layer 6 — C++ hot-path (`cpp/distance.cpp`)
 
 HNSW's traversal is millions of single-pair distances. At d≈9 the numpy
