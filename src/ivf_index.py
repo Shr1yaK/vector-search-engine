@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 
 from .kmeans import KMeans
-from .vectors import as_mask, get_metric
+from .vectors import as_mask, exact_subset_search, get_metric
 
 
 class IVFIndex:
@@ -100,6 +100,17 @@ class IVFIndex:
         query = np.asarray(query, dtype=np.float32)
         nprobe = self.nprobe if nprobe is None else nprobe
         nprobe = min(nprobe, len(self.centroids_))
+
+        # Pre-filtering: a highly selective filter makes probing cells pointless
+        # (few candidates survive, and we can starve below k). Scan the matching
+        # subset exactly instead — cheaper and exact. See exact_subset_search.
+        if allowed is not None:
+            mask = as_mask(allowed, self.n)
+            n_allowed = int(mask.sum())
+            if n_allowed <= max(4 * k, int(0.02 * self.n)):
+                return exact_subset_search(
+                    query, self.vectors_, np.where(mask)[0], k, self._dist
+                )
 
         # Coarse step: rank cells by centroid distance, take the nearest nprobe.
         centroid_dists = self._dist(query, self.centroids_)

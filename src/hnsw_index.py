@@ -34,7 +34,13 @@ from pathlib import Path
 
 import numpy as np
 
-from .vectors import NATIVE_AVAILABLE, as_mask, get_metric, l2_sq_point
+from .vectors import (
+    NATIVE_AVAILABLE,
+    as_mask,
+    exact_subset_search,
+    get_metric,
+    l2_sq_point,
+)
 
 
 class HNSWIndex:
@@ -279,7 +285,20 @@ class HNSWIndex:
         mask = None
         if allowed is not None:
             mask = as_mask(allowed, self.vectors_.shape[0])
-            ef = max(ef, 4 * k)  # widen beam so filtered matches survive
+            n_allowed = int(mask.sum())
+            # Strategy switch on filter selectivity. Post-filtering a graph walk
+            # starves when few nodes match — the beam fills with rejects and we
+            # return fewer than k. Below the threshold, scan the matching subset
+            # exactly instead: cheaper *and* exact. This is what production
+            # filtered-ANN does (pre- vs post-filtering).
+            if n_allowed <= max(4 * k, int(0.02 * self.vectors_.shape[0])):
+                return exact_subset_search(
+                    q, self.vectors_, np.where(mask)[0], k, self._dist
+                )
+            # Otherwise post-filter, but widen the beam in proportion to how
+            # much the filter throws away so enough matches survive.
+            selectivity = n_allowed / self.vectors_.shape[0]
+            ef = min(int(max(ef, k / max(selectivity, 1e-9))), self.vectors_.shape[0])
 
         ep = self.entry_point_
         # Greedy descent through the express layers (beam width 1).

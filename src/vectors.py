@@ -152,6 +152,7 @@ def load_spotify(
     method: str = "zscore",
     limit: int | None = None,
     dropna: bool = True,
+    sample_seed: int | None = None,
 ) -> Dataset:
     """Load the Spotify Tracks CSV into a normalized :class:`Dataset`.
 
@@ -167,6 +168,13 @@ def load_spotify(
         Optionally cap the number of rows (useful for quick experiments).
     dropna:
         Drop rows with missing feature values (a handful exist in the raw data).
+    sample_seed:
+        If set (and ``limit`` is set), take a *random* seeded sample of ``limit``
+        rows instead of the first ``limit``. This matters: the raw CSV is sorted
+        by ``track_genre``, so taking the head yields only the alphabetically
+        earliest genres (acoustic, afrobeat, …). Sampling gives a corpus that
+        spans all 114 genres — what the app wants. Benchmarks leave this ``None``
+        so their corpus stays byte-identical across runs.
     """
     if pd is None:  # pragma: no cover
         raise ImportError("pandas is required to load the Spotify CSV")
@@ -175,7 +183,10 @@ def load_spotify(
     if dropna:
         df = df.dropna(subset=list(feature_columns))
     if limit is not None:
-        df = df.iloc[:limit]
+        if sample_seed is not None and limit < len(df):
+            df = df.sample(n=limit, random_state=sample_seed)
+        else:
+            df = df.iloc[:limit]
     df = df.reset_index(drop=True)
 
     raw = df[list(feature_columns)].to_numpy(dtype=np.float64)
@@ -293,6 +304,30 @@ def get_metric(name: str):
 def pairwise_to_point(query: np.ndarray, matrix: np.ndarray, metric: str = "l2") -> np.ndarray:
     """Distances from one query to all rows, dispatched by metric name."""
     return get_metric(metric)(query, matrix)
+
+
+def exact_subset_search(
+    query: np.ndarray,
+    vectors: np.ndarray,
+    candidate_ids: np.ndarray,
+    k: int,
+    dist_fn,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Exact top-k over an explicit subset of rows.
+
+    Used by every approximate index as its **pre-filtering** strategy: when a
+    metadata filter is highly selective, scanning the handful of matching rows
+    exactly is both cheaper *and* more accurate than post-filtering an
+    approximate traversal (which can starve and return fewer than k results).
+    """
+    if candidate_ids.size == 0:
+        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.float32)
+    dists = dist_fn(query, vectors[candidate_ids])
+    kk = min(k, candidate_ids.size)
+    part = np.argpartition(dists, kk - 1)[:kk]
+    order = np.argsort(dists[part])
+    top = part[order]
+    return candidate_ids[top], dists[top].astype(np.float32)
 
 
 def as_mask(allowed, n: int) -> np.ndarray:

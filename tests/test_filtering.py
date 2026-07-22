@@ -62,6 +62,37 @@ def test_approx_filter_recall_reasonable(uniform_data, query_set, allowed_mask):
     assert hits / tot > 0.85
 
 
+def test_selective_filter_does_not_starve(uniform_data, query_set):
+    """A highly selective filter must still return k results, not fewer.
+
+    Regression test: post-filtering an approximate traversal used to return <k
+    when few points matched (the beam filled with rejects). Each index now
+    switches to an exact scan of the matching subset when the filter is
+    selective, which also makes the answer exact.
+    """
+    from src.ivfpq_index import IVFPQIndex
+
+    rng = np.random.default_rng(11)
+    allowed = np.zeros(len(uniform_data), dtype=bool)
+    allowed[rng.choice(len(uniform_data), size=25, replace=False)] = True  # ~1%
+
+    bf = BruteForceIndex(uniform_data)
+    hnsw = HNSWIndex(M=16, ef_construction=100, random_state=0).build(uniform_data)
+    ivf = IVFIndex(nlist=40, random_state=0).build(uniform_data)
+    ipq = IVFPQIndex(nlist=40, m=4, ksub=32, random_state=0).build(
+        uniform_data, keep_vectors=True
+    )
+
+    for q in query_set[:10]:
+        truth, _ = bf.search(q, 10, allowed=allowed)
+        for idx, kw in ((hnsw, {"ef_search": 64}), (ivf, {"nprobe": 8}), (ipq, {"nprobe": 8})):
+            ids, _ = idx.search(q, 10, allowed=allowed, **kw)
+            assert len(ids) == 10, f"{type(idx).__name__} starved: {len(ids)} < 10"
+            assert allowed[ids].all()
+            # pre-filtering makes the selective case exact
+            assert sorted(ids.tolist()) == sorted(truth.tolist())
+
+
 def test_empty_filter_returns_nothing(uniform_data):
     bf = BruteForceIndex(uniform_data)
     ids, dists = bf.search(uniform_data[0], k=10, allowed=np.zeros(len(uniform_data), bool))

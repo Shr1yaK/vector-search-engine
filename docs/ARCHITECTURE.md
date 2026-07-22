@@ -124,12 +124,21 @@ Two features every index shares, because a real vector database is expected to
 have them:
 
 - **Metadata filtering** (`vectors.as_mask` + `allowed=` on each `search`).
-  A filter (boolean mask or id iterable) is normalized once and applied
-  per-index: brute force pushes disallowed rows to +inf (exact); IVF filters the
-  candidates gathered from probed cells; HNSW filters the base-layer beam and
-  widens `ef` so matching candidates survive. This is the classic ANN+filter
-  trade-off — post-filtering a graph traversal can starve results, so the beam
-  is widened to compensate.
+  A filter (boolean mask or id iterable) is normalized once, then each index
+  picks a strategy based on **selectivity** — the classic pre- vs post-filtering
+  trade in filtered ANN:
+  - *Selective filter* (matches ≤ max(4k, 2% of the corpus)): **pre-filter** —
+    scan the matching subset exactly via `vectors.exact_subset_search`. Cheaper
+    than traversing the index, and the answer is exact.
+  - *Broad filter*: **post-filter** the traversal — brute force pushes
+    disallowed rows to +inf; IVF filters candidates from probed cells; HNSW
+    filters the base-layer beam, widening `ef` in proportion to what the filter
+    discards.
+
+  The strategy switch exists because naive post-filtering **starves**: with a
+  narrow filter the beam fills with non-matching points and fewer than `k`
+  results survive. That was a real bug caught in review (see `NOTES.md` §11) and
+  is now covered by `test_selective_filter_does_not_starve`.
 - **Persistence** (`save` / `load` on IVF and HNSW). Building an index — k-means
   for IVF, graph construction for HNSW — is the expensive step; persisting lets
   a service load a prebuilt index at startup. Arrays go to `.npz`, structure

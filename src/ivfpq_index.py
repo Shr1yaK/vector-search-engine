@@ -23,7 +23,7 @@ import numpy as np
 
 from .kmeans import KMeans
 from .pq import ProductQuantizer
-from .vectors import as_mask, get_metric
+from .vectors import as_mask, exact_subset_search, get_metric
 
 
 class IVFPQIndex:
@@ -136,6 +136,35 @@ class IVFPQIndex:
         probe_cells = np.argpartition(centroid_dists, nprobe - 1)[:nprobe]
 
         mask = as_mask(allowed, self.n_) if allowed is not None else None
+        if mask is not None:
+            n_allowed = int(mask.sum())
+            # Pre-filtering on a selective filter: probing cells would starve.
+            if n_allowed <= max(4 * k, int(0.02 * self.n_)):
+                ids = np.where(mask)[0]
+                if self.vectors_ is not None:
+                    # Full precision available — exact answer over the subset.
+                    return exact_subset_search(
+                        query, self.vectors_, ids, k, self._coarse_dist
+                    )
+                # Compressed-only: score every matching code by ADC. Still
+                # guarantees k results, just approximate distances.
+                scored = []
+                for c in range(len(self.centroids_)):
+                    cell = self.inverted_lists_[c]
+                    sel = cell[mask[cell]] if cell.size else cell
+                    if sel.size:
+                        table = self.pq_.distance_tables(query - self.centroids_[c])
+                        scored.append((sel, self.pq_.adc_distances(self.codes_[sel], table)))
+                if not scored:
+                    return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.float32)
+                a_ids = np.concatenate([s[0] for s in scored])
+                a_d = np.concatenate([s[1] for s in scored])
+                kk = min(k, a_ids.size)
+                part = np.argpartition(a_d, kk - 1)[:kk]
+                order = np.argsort(a_d[part])
+                top = part[order]
+                return a_ids[top], np.sqrt(np.maximum(a_d[top], 0.0)).astype(np.float32)
+
         cand_ids: list[np.ndarray] = []
         cand_dists: list[np.ndarray] = []
         for c in probe_cells:

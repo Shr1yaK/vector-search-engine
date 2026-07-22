@@ -320,7 +320,66 @@ repo itself is missing.
 
 ---
 
-## 11. Glossary (quick reference)
+## 11. Hiccups found in portfolio review — and how they were fixed
+
+A pass over live screenshots of the running app surfaced real issues. Recording
+them here because *"what broke and how I found it"* is often a better interview
+answer than the feature list.
+
+**1. The corpus was genre-biased (the worst one).**
+`load_spotify(limit=n)` took the **first n rows**, but the CSV is sorted by
+`track_genre` — so a 15k corpus contained only 15 alphabetically-early genres
+(acoustic, afrobeat, anime, blues…). Every result looked like obscure afrobeat,
+and the genre filter had no "pop"/"rock"/"edm" to pick. *Fix:* added
+`sample_seed` to `load_spotify`; the app now loads a **seeded random sample**, so
+15k tracks span all **114 genres**. Benchmarks deliberately keep the old
+head-based behaviour so their corpus stays identical across runs.
+
+**2. Selective filters starved the approximate indexes (a real bug).**
+Asking for 10 results with a narrow filter (e.g. 194 of 15,000 tracks) returned
+only **2**. Cause: post-filtering an approximate traversal — the HNSW beam and
+the IVF probed cells filled with non-matching points, so fewer than k survived.
+*Fix:* every index now switches strategy on **filter selectivity**. Below a
+threshold it **pre-filters** — scans the matching subset exactly
+(`vectors.exact_subset_search`) — which is both cheaper *and* exact; above it,
+post-filters with a beam widened in proportion to what the filter discards. This
+is the pre- vs post-filtering trade real filtered-ANN systems make. Regression
+test: `test_filtering.py::test_selective_filter_does_not_starve`.
+
+**3. The app's latency number contradicted the README.**
+The Discover tab timed **one** query, so IVF showed 0.67 ms vs brute force's
+0.47 ms — the opposite of the benchmark's 10.6× speedup. At sub-millisecond
+scale a single reading is mostly interpreter/framework noise. *Fix:* the app now
+reports the **mean of 20 repeated queries**, with a tooltip pointing at the
+controlled 300-query benchmark. Lesson: never quote a single timing of a
+sub-millisecond operation.
+
+**4. IVF-PQ was benchmarked but not selectable.** The Benchmarks tab charted
+four indexes while the Discover picker offered three. *Fix:* IVF-PQ added to the
+picker (with `rerank=100`, since raw PQ recall is ~0.5).
+
+**5. The C++ speedup was only a number in a JSON file.** *Fix:* the "How it
+works" tab now has a **live micro-benchmark button** that runs the kernel both
+ways on the spot and prints the speedup *and* the max difference between the two
+results (≈1e-7 — identical answers, just faster).
+
+**6. Smaller things.** Dead `chart_df` variable removed; build time now shown as
+a metric (HNSW ~25 s vs IVF <1 s makes the trade visible); a caption explains
+`similarity = 1/(1+distance)` and why genre labels can look unrelated; a warning
+appears before building HNSW over ≥50k tracks (minutes in pure Python); the
+Benchmarks tab embeds the committed **log-axis** figure, since Streamlit's linear
+scatter bunches the fast indexes together.
+
+**7. Not a bug:** the "Record screen" / "Next steps" modal is **Arc's built-in
+browser recorder**, not a project feature. Useful for making a demo video — but
+never describe it as something the project does.
+
+**Worth pointing at in an interview:** at 15k tracks, HNSW, IVF, IVF-PQ and brute
+force return the *same* top-10 with identical similarity scores for the same
+query. That's live proof of "approximate ≈ exact" — better than citing a JSON
+file.
+
+## 12. Glossary (quick reference)
 
 - **Vector / embedding** — a list of numbers representing an item (here, a song's
   audio features).
@@ -339,7 +398,7 @@ repo itself is missing.
 
 ---
 
-## 12. If you want to keep improving it later
+## 13. If you want to keep improving it later
 
 Ideas discussed but intentionally *not* built (the project is complete without
 them): inner-product / MIPS metric (relevant to recommendations & RAG), a k-NN
